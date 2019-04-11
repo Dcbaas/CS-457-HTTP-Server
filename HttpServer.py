@@ -4,7 +4,7 @@ import socket
 import select
 
 class HttpServer:
-    def __init__(self, portNum = 8008, docRoot = './', logFile = ''):
+    def __init__(self, portNum, docRoot, logFile):
         self.socketList = []
         self.socketIPMapping = {}
 
@@ -65,11 +65,19 @@ class HttpServer:
                         if line == requestLine[0]:
                             continue
                         else:
-                            print('here1')
-                            print(line.encode())
                             splitLine = line.split(':', 1)
                             httpDict.update({splitLine[0]:splitLine[1]})
 
-                    print('Getting file: ' + fileDetail)
-                    print(httpDict)
-
+                    #Search for the file
+                    print('Searching for file ' + fileDetail)
+                    
+                    try:
+                        file = open(filePath + fileDetail, 'rb')
+                        fileContents = file.read()
+                        file.close()
+                    except Exception as err:
+                        print('The file searched for does not exist')
+                        #Make an error packet here
+                        continue
+                    #Create the response packet
+                    
