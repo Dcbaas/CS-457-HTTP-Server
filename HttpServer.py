@@ -57,8 +57,7 @@ class HttpServer:
                 for line in sys.stdin:
                     line = line.strip()
                     if line == '!quit':
-                        #do quit stuff
-                        print('quit command called. Shame it doesn\'t work bitch')
+                        self.shutdownServer()
             else:
                 for socket in readyToRead:
                     httpDict = {}
@@ -78,6 +77,8 @@ class HttpServer:
                             splitLine = line.split(':', 1)
                             if len(splitLine) == 2:
                                 httpDict.update({splitLine[0]:splitLine[1]})
+                    fileExist = self.findFileExist(fileDetail)
+                    print(fileExist)
                     response = self.send200(fileDetail, httpDict)
                     socket.send(response)
                     continue
@@ -148,6 +149,19 @@ class HttpServer:
         print(clientRaw)
         print(serverRaw)
         return serverRaw < clientRaw
+
+    def findFileExist(self, fileDetail):
+        return os.path.exist(fileDetail)
+
+    def shutdownServer(self):
+        for socket in self.socketList:
+            if socket == self.serverSocket or socket == sys.stdin:
+                continue
+            else:
+                socket.shutdown(socket.SHUT_RDWR)
+                socket.close()
+        self.serverSocket.close()
+        exit()
 
 class ContentTypes(Enum):
     IMAGE_FILE = {'jpeg': {'content-type':'image/jpeg'}}
