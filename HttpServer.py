@@ -60,12 +60,16 @@ class HttpServer:
                         self.shutdownServer()
             else:
                 for socket in readyToRead:
+                    response = None
                     httpDict = {}
+
                     request = socket.recv(2400).decode()
                     requestLine = request.split('\r\n')
                     requestType = requestLine[0].split(' ')[0]
+
                     if requestType != 'GET':
-                        #Send a 501
+                        response = self.send501()
+                        socket.send(response)
                         continue
 
                     fileDetail = requestLine[0].split(' ')[1]
@@ -78,10 +82,21 @@ class HttpServer:
                             if len(splitLine) == 2:
                                 httpDict.update({splitLine[0]:splitLine[1]})
                     fileExist = self.findFileExist(fileDetail)
-                    print(fileExist)
-                    response = self.send200(fileDetail, httpDict)
+                    if fileExist:
+                        if 'If-Modified-Since' in httpDict:
+                            clientTime = httpDict['If-Modified-Since']
+                            serverTime = self.getLastModified(fileDetail)
+                            if self.compareTimeStamps(clientTime,serverTime):
+                                response = self.send304(fileDetail)
+                            else:
+                                response = self.send200(fileDetail, httpDict)
+                        else:
+                            response = self.send200(fileDetail,httpDict)
+                    else:
+                        response = self.send404()
                     socket.send(response)
                     continue
+
             for socket in self.socketList:
                 if socket == self.serverSocket or socket == sys.stdin:
                     continue
@@ -93,6 +108,20 @@ class HttpServer:
                     self.socketList.remove(socket)
                     del self.socketIPMapping[socket]
                     del self.socketTimeMapping[socket]
+                    print('Socket Closed')
+
+    def send304(self, fileDetail):
+        lastModifiedTime = self.getLastModified(fileDetail)
+        date = time.asctime(time.gmtime())
+
+        httpHeader = 'HTTP/1.1 304 Not Modified\r\n'
+        httpHeader = httpHeader + 'Date: ' + date + ' \r\n'
+        httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + ' \r\n'
+        httpHeader = httpHeader + ' \r\n'
+        httpResponse = httpHeader.encode()
+        return httpResponse
+
+
 
     def send404(self):
         file = open('customHTML/404.html', 'rb')
@@ -100,24 +129,41 @@ class HttpServer:
         file.close()
         contentType = 'text/html; charset=utf-8'
         contentLength = len(fileContents)
+        lastModifiedTime = self.getLastModified('customHTML/501.html')
         date = time.asctime(time.gmtime())
 
-        httpHeader = 'HTTP/1.1 404 NOT FOUND \r\n'
-        httpHeader = httpHeader + 'Content-type: ' + contentType + ' \r\n'
-        httpHeader = httpHeader + 'Content-length: ' + str(contentLength) + ' \r\n'
+        httpHeader = 'HTTP/1.1 404 Not Found \r\n'
         httpHeader = httpHeader + 'Date: ' + date + ' \r\n'
+        httpHeader = httpHeader + 'Content-type: ' + contentType + ' \r\n'
+        #httpHeader = httpHeader + 'Content-Length: ' + str(contentLength) + ' \r\n'
+        httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + ' \r\n'
         httpHeader = httpHeader + ' \r\n'
         httpResponse = httpHeader.encode() + fileContents
         return httpResponse
 
-        return
     def send501(self):
-        return
+        file = open('customHTML/501.html','rb')
+        fileContents = file.read()
+        file.close()
+        lastModifiedTime = self.getLastModified('customHTML/501.html')
+        contentType = 'text/html; charset=utf-8'
+        contentLength = len(fileContents)
+        date = time.asctime(time.gmtime())
+
+        httpHeader = 'HTTP/1.1 501 Not Implemented \r\n'
+        httpHeader = httpHeader + 'Date: ' + date + ' \r\n'
+        httpHeader = httpHeader + 'Content-type: ' + contentType + ' \r\n'
+        httpHeader = httpHeader + 'Content-Length: ' + str(contentLength) + ' \r\n'
+        httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + ' \r\n'
+        httpHeader = httpHeader + ' \r\n'
+        httpResponse = httpHeader.encode() + fileContents
+        return httpResponse
+
     def send200(self, fileDetail, httpDict):
         fileContents = None
         fileExtension = self.getExtension(fileDetail)
         lastModifiedTime = self.getLastModified(fileDetail)
-        contentType = 'text/html; charset=utf-8'
+        contentType = self.getContentType(fileExtension)
 
         file = open(fileDetail, 'rb')
         fileContents = file.read()
@@ -143,15 +189,15 @@ class HttpServer:
         raw_time = os.path.getmtime(fileDetail)
         return time.asctime(time.gmtime(raw_time))
 
-    def compareTimeStamps(clientLastModified, serverLastModified):
+    def compareTimeStamps(self, clientLastModified, serverLastModified):
         clientRaw = time.mktime(time.strptime(clientLastModified))
         serverRaw = time.mktime(time.strptime(serverLastModified))
         print(clientRaw)
         print(serverRaw)
-        return serverRaw < clientRaw
+        return serverRaw - clientRaw == 0
 
     def findFileExist(self, fileDetail):
-        return os.path.exist(fileDetail)
+        return os.path.exists(fileDetail)
 
     def shutdownServer(self):
         for socket in self.socketList:
@@ -162,6 +208,20 @@ class HttpServer:
                 socket.close()
         self.serverSocket.close()
         exit()
+
+    def getContentType(self, extension):
+        if extension == 'jpeg':
+            return 'image/jpeg'
+        elif extension == 'jpg':
+            return 'image/jpg'
+        elif extension == 'ico':
+            return 'image/ico'
+        elif extension == 'html':
+            return 'text/html; charset=utf-8'
+        elif extension == 'txt':
+            return 'text/plain; charset=utf-8'
+        elif extension == 'pdf':
+            return 'application/pdf'
 
 class ContentTypes(Enum):
     IMAGE_FILE = {'jpeg': {'content-type':'image/jpeg'}}
