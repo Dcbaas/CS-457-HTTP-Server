@@ -56,7 +56,7 @@ class HttpServer:
             elif sys.stdin in readyToRead:
                 for line in sys.stdin:
                     line = line.strip()
-                    if line == '!quit':
+                    if line == '!quit' or line == '!q':
                         self.shutdownServer()
             else:
                 for socket in readyToRead:
@@ -64,16 +64,34 @@ class HttpServer:
                     httpDict = {}
 
                     request = socket.recv(2400).decode()
+                    if self.manageBrokenPipe(socket, request):
+                        print('Brokent Pipe again')
+                        continue
+
                     requestLine = request.split('\r\n')
                     requestType = requestLine[0].split(' ')[0]
 
-                    if requestType != 'GET':
-                        response = self.send501()
-                        socket.send(response)
+                    try:
+                        if requestType != 'GET':
+                            print("GET failed")
+                            response = self.send501()
+                            socket.send(response)
+                            continue
+                    except BrokenPipeError as err:
+                        print(self.socketList)
+                        print('\n\n')
+                        print(socket)
+                        print('\n\n')
+                        print(request)
+                        self.closeClientSocket(socket)
+                        print(err)
+                        print('Broken pipe issue?')
                         continue
 
                     fileDetail = requestLine[0].split(' ')[1]
                     fileDetail = self.filePath + fileDetail
+                    if os.path.isdir(fileDetail):
+                        fileDetail = self.filePath + '/index.html'
                     for line in requestLine:
                         if line == requestLine[0]:
                             continue
@@ -81,6 +99,13 @@ class HttpServer:
                             splitLine = line.split(':', 1)
                             if len(splitLine) == 2:
                                 httpDict.update({splitLine[0]:splitLine[1]})
+
+                    if self.isSafePath(fileDetail) == False:
+                        print("UNSAFE")
+                        response = self.send501()
+                        socket.send(response)
+                        continue
+
                     fileExist = self.findFileExist(fileDetail)
                     if fileExist:
                         if 'If-Modified-Since' in httpDict:
@@ -92,6 +117,9 @@ class HttpServer:
                                 response = self.send200(fileDetail, httpDict)
                         else:
                             response = self.send200(fileDetail,httpDict)
+
+                        #REMOVE LINE 115 AFTER FIXING TIMEOUT ISSUES.
+                        #response = self.send200(fileDetail, httpDict)
                     else:
                         response = self.send404()
                     socket.send(response)
@@ -104,20 +132,14 @@ class HttpServer:
                 currentTime = time.time()
                 elapsed = currentTime - startTime
                 if elapsed > 20:
-                    socket.close()
-                    self.socketList.remove(socket)
-                    del self.socketIPMapping[socket]
-                    del self.socketTimeMapping[socket]
-                    print('Socket Closed')
+                   self.closeClientSocket(socket)
 
     def send304(self, fileDetail):
-        lastModifiedTime = self.getLastModified(fileDetail)
         date = time.asctime(time.gmtime())
 
         httpHeader = 'HTTP/1.1 304 Not Modified\r\n'
         httpHeader = httpHeader + 'Date: ' + date + ' \r\n'
-        httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + ' \r\n'
-        httpHeader = httpHeader + ' \r\n'
+        httpHeader = httpHeader + '\r\n'
         httpResponse = httpHeader.encode()
         return httpResponse
 
@@ -129,15 +151,13 @@ class HttpServer:
         file.close()
         contentType = 'text/html; charset=utf-8'
         contentLength = len(fileContents)
-        lastModifiedTime = self.getLastModified('customHTML/501.html')
         date = time.asctime(time.gmtime())
 
-        httpHeader = 'HTTP/1.1 404 Not Found \r\n'
-        httpHeader = httpHeader + 'Date: ' + date + ' \r\n'
-        httpHeader = httpHeader + 'Content-type: ' + contentType + ' \r\n'
-        #httpHeader = httpHeader + 'Content-Length: ' + str(contentLength) + ' \r\n'
-        httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + ' \r\n'
-        httpHeader = httpHeader + ' \r\n'
+        httpHeader = 'HTTP/1.1 404 Not Found\r\n'
+        httpHeader = httpHeader + 'Date: ' + date + '\r\n'
+        httpHeader = httpHeader + 'Content-type: ' + contentType + '\r\n'
+        httpHeader = httpHeader + 'Content-Length: ' + str(contentLength) + '\r\n'
+        httpHeader = httpHeader + '\r\n'
         httpResponse = httpHeader.encode() + fileContents
         return httpResponse
 
@@ -145,17 +165,15 @@ class HttpServer:
         file = open('customHTML/501.html','rb')
         fileContents = file.read()
         file.close()
-        lastModifiedTime = self.getLastModified('customHTML/501.html')
         contentType = 'text/html; charset=utf-8'
         contentLength = len(fileContents)
         date = time.asctime(time.gmtime())
 
         httpHeader = 'HTTP/1.1 501 Not Implemented \r\n'
         httpHeader = httpHeader + 'Date: ' + date + ' \r\n'
-        httpHeader = httpHeader + 'Content-type: ' + contentType + ' \r\n'
-        httpHeader = httpHeader + 'Content-Length: ' + str(contentLength) + ' \r\n'
-        httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + ' \r\n'
-        httpHeader = httpHeader + ' \r\n'
+        httpHeader = httpHeader + 'Content-type: ' + contentType + '\r\n'
+        httpHeader = httpHeader + 'Content-Length: ' + str(contentLength) + '\r\n'
+        httpHeader = httpHeader + '\r\n'
         httpResponse = httpHeader.encode() + fileContents
         return httpResponse
 
@@ -173,10 +191,10 @@ class HttpServer:
         date = time.asctime(time.gmtime())
         #construct the httpHeader
         httpHeader = 'HTTP/1.1 200 OK \r\n'
-        httpHeader = httpHeader + 'Date: ' + date + ' \r\n'
-        httpHeader = httpHeader + 'Content-type: ' + contentType + ' \r\n'
-        httpHeader = httpHeader + 'Content-length: ' + str(contentLength) + ' \r\n'
-        httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + ' \r\n'
+        httpHeader = httpHeader + 'Date: ' + date + '\r\n'
+        httpHeader = httpHeader + 'Content-type: ' + contentType + '\r\n'
+        httpHeader = httpHeader + 'Content-length: ' + str(contentLength) + '\r\n'
+        httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + '\r\n'
         httpHeader = httpHeader + '\r\n'
         httpResponse = httpHeader.encode() + fileContents
         return httpResponse
@@ -190,6 +208,8 @@ class HttpServer:
         return time.asctime(time.gmtime(raw_time))
 
     def compareTimeStamps(self, clientLastModified, serverLastModified):
+        #There was an extra whitspace char on end that needs to be removed.
+        clientLastModified = clientLastModified.strip()
         clientRaw = time.mktime(time.strptime(clientLastModified))
         serverRaw = time.mktime(time.strptime(serverLastModified))
         print(clientRaw)
@@ -222,10 +242,27 @@ class HttpServer:
             return 'text/plain; charset=utf-8'
         elif extension == 'pdf':
             return 'application/pdf'
+    def closeClientSocket(self, socket):
+        socket.close() 
+        self.socketList.remove(socket)
+        del self.socketIPMapping[socket]
+        del self.socketTimeMapping[socket]
+        print('Socket Closed')
+        return
 
-class ContentTypes(Enum):
-    IMAGE_FILE = {'jpeg': {'content-type':'image/jpeg'}}
-    HTML_FILE = {'html': {'content-type':'text/html'}}
-    TEXT_FILE ={'txt': {'content-type':'text/plain'}}
-    PDF_FILE = {'pdf': {'Content-type': 'application/pdf'}}
+    def manageBrokenPipe(self, socket, message):
+        if len(message) == 0:
+            self.closeClientSocket(socket)
+            return True
+        return False
+
+    def isSafePath(self, fileDetail):
+        print(fileDetail.find('../'))
+        print(fileDetail.find('~/'))
+        if fileDetail.find('../') == -1 and fileDetail.find('~/') == -1:
+            print(True)
+            return True
+        print(False)
+        return False 
+
 
