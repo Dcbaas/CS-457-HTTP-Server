@@ -4,6 +4,7 @@ import socket
 import select
 import time
 from enum import Enum
+from Logger import Logger
 
 class HttpServer:
     def __init__(self, portNum, docRoot, logFile):
@@ -25,21 +26,7 @@ class HttpServer:
         else:
             self.filePath = os.path.join(docRoot)
 
-        if logFile != '':
-            sys.stdout = open(logFile, 'w')
-
-        if logFile == '':
-            self.logFile = sys.stdout
-        else:
-            self.logFile = open(logFile, 'w')
-
-
-    def printLog(self, message):
-        if self.logFile == sys.stdout:
-            print(message)
-        else:
-            print(message)
-            self.logFile.write(message + '\n')
+        self.logger = Logger(logFile)
 
     def run(self):
         while True:
@@ -52,11 +39,12 @@ class HttpServer:
                 (clientSocket, clientAddress) = self.serverSocket.accept()
                 self.socketList.append(clientSocket)
                 self.socketIPMapping.update({clientSocket:clientAddress})
-                self.socketTimeMapping.update({clientSocket:time.time()})
+                self.socketTimeMapping.update({clientSocket:time.time()}) 
             elif sys.stdin in readyToRead:
                 for line in sys.stdin:
                     line = line.strip()
                     if line == '!quit' or line == '!q':
+                        self.logger.addLog('Shutting Down Server')
                         self.shutdownServer()
             else:
                 for socket in readyToRead:
@@ -65,27 +53,20 @@ class HttpServer:
 
                     request = socket.recv(2400).decode()
                     if self.manageBrokenPipe(socket, request):
-                        print('Brokent Pipe again')
                         continue
 
                     requestLine = request.split('\r\n')
                     requestType = requestLine[0].split(' ')[0]
 
+                    self.logger.addLog(requestLine[0])
+
                     try:
                         if requestType != 'GET':
-                            print("GET failed")
                             response = self.send501()
                             socket.send(response)
                             continue
                     except BrokenPipeError as err:
-                        print(self.socketList)
-                        print('\n\n')
-                        print(socket)
-                        print('\n\n')
-                        print(request)
-                        self.closeClientSocket(socket)
                         print(err)
-                        print('Broken pipe issue?')
                         continue
 
                     fileDetail = requestLine[0].split(' ')[1]
@@ -101,8 +82,9 @@ class HttpServer:
                                 httpDict.update({splitLine[0]:splitLine[1]})
 
                     if self.isSafePath(fileDetail) == False:
-                        print("UNSAFE")
-                        response = self.send501()
+                        #print("UNSAFE")
+                        self.logger.addLog('Unauthorized file access attempt made')
+                        response = self.send404()
                         socket.send(response)
                         continue
 
@@ -118,8 +100,6 @@ class HttpServer:
                         else:
                             response = self.send200(fileDetail,httpDict)
 
-                        #REMOVE LINE 115 AFTER FIXING TIMEOUT ISSUES.
-                        #response = self.send200(fileDetail, httpDict)
                     else:
                         response = self.send404()
                     socket.send(response)
@@ -141,6 +121,8 @@ class HttpServer:
         httpHeader = httpHeader + 'Date: ' + date + ' \r\n'
         httpHeader = httpHeader + '\r\n'
         httpResponse = httpHeader.encode()
+
+        self.logger.addLog(httpHeader)
         return httpResponse
 
 
@@ -159,6 +141,8 @@ class HttpServer:
         httpHeader = httpHeader + 'Content-Length: ' + str(contentLength) + '\r\n'
         httpHeader = httpHeader + '\r\n'
         httpResponse = httpHeader.encode() + fileContents
+
+        self.logger.addLog(httpHeader)
         return httpResponse
 
     def send501(self):
@@ -174,7 +158,11 @@ class HttpServer:
         httpHeader = httpHeader + 'Content-type: ' + contentType + '\r\n'
         httpHeader = httpHeader + 'Content-Length: ' + str(contentLength) + '\r\n'
         httpHeader = httpHeader + '\r\n'
+
         httpResponse = httpHeader.encode() + fileContents
+
+        #Log Action
+        self.logger.addLog(httpHeader)
         return httpResponse
 
     def send200(self, fileDetail, httpDict):
@@ -197,6 +185,8 @@ class HttpServer:
         httpHeader = httpHeader + 'Last-modified: ' + lastModifiedTime + '\r\n'
         httpHeader = httpHeader + '\r\n'
         httpResponse = httpHeader.encode() + fileContents
+
+        self.logger.addLog(httpHeader)
         return httpResponse
 
     def getExtension(self, fileDetail):
@@ -212,8 +202,8 @@ class HttpServer:
         clientLastModified = clientLastModified.strip()
         clientRaw = time.mktime(time.strptime(clientLastModified))
         serverRaw = time.mktime(time.strptime(serverLastModified))
-        print(clientRaw)
-        print(serverRaw)
+        #print(clientRaw)
+        #print(serverRaw)
         return serverRaw - clientRaw == 0
 
     def findFileExist(self, fileDetail):
@@ -242,12 +232,13 @@ class HttpServer:
             return 'text/plain; charset=utf-8'
         elif extension == 'pdf':
             return 'application/pdf'
+
     def closeClientSocket(self, socket):
         socket.close() 
         self.socketList.remove(socket)
         del self.socketIPMapping[socket]
         del self.socketTimeMapping[socket]
-        print('Socket Closed')
+        #print('Socket Closed')
         return
 
     def manageBrokenPipe(self, socket, message):
@@ -257,12 +248,10 @@ class HttpServer:
         return False
 
     def isSafePath(self, fileDetail):
-        print(fileDetail.find('../'))
-        print(fileDetail.find('~/'))
+        #print(fileDetail.find('../'))
+        #print(fileDetail.find('~/'))
         if fileDetail.find('../') == -1 and fileDetail.find('~/') == -1:
-            print(True)
             return True
-        print(False)
-        return False 
+        return False
 
 

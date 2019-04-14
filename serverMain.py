@@ -11,14 +11,11 @@ defaultLog = ''
 args = getopt.getopt(sys.argv[1:], 'p:d:l:')[0]
 print(args)
 for arg in args:
-    print(type(arg))
     if len(arg) != 0:
         if '-p' in arg[0]:
-            print('Changed port to ' + arg[1])
             defaultPort = int(arg[1])
         elif '-d' in arg[0]:
             defaultDoc = arg[1]
-            print('Changed Docroot to ' + arg[1])
         elif '-l' in arg[0]:
             defaultLog = arg[1]
         else:
